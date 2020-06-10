@@ -17,7 +17,7 @@
 #define RANMAX 50;
 
 void playerTurn(int playID, int waitID, int* piles, int pileNumber);
-int pilesNotEmpty(int* piles, int pileNumber);
+int checkPilesContent(int* piles, int pileNumber);
 void sendPiles(int fd1, int fd2, int* piles, int pileNumber);
 void handle_sigchld(int);
 
@@ -129,7 +129,8 @@ int main (int argc, char **argv)
         while(1){
           //Player 1 turn
           playerTurn(fd1, fd2, piles, pileNumber);
-          if (pilesNotEmpty == 0){ //winning condition
+          if (checkPilesContent(piles, pileNumber) == 0){ //winning condition
+            printf("Player 1 has won, initiating ending sequence.\n");
             //send end signal
             send(fd1, &endSignal, sizeof(endSignal), 0);
             send(fd2, &endSignal, sizeof(endSignal), 0);
@@ -140,6 +141,7 @@ int main (int argc, char **argv)
             send(fd2, player1WinMsg, playerWinMsgLen, 0);
             break;
           } else {
+            printf("Game is continuing");
             //send cont signal
             send(fd1, &contSignal, sizeof(contSignal), 0);
             send(fd2, &contSignal, sizeof(contSignal), 0);
@@ -147,7 +149,8 @@ int main (int argc, char **argv)
 
           //Player 2 turn
           playerTurn(fd2, fd1, piles, pileNumber);
-          if (pilesNotEmpty == 0){ //winning condition
+          if (checkPilesContent(piles, pileNumber) == 0){ //winning condition
+            printf("Player 2 has won, initiating ending sequence.\n");
             //send end signal
             send(fd1, &endSignal, sizeof(endSignal), 0);
             send(fd2, &endSignal, sizeof(endSignal), 0);
@@ -158,6 +161,7 @@ int main (int argc, char **argv)
             send(fd2, player2WinMsg, playerWinMsgLen, 0);
             break;
           } else {
+            printf("Game is continuing.\n");
             //send cont signal
             send(fd1, &contSignal, sizeof(contSignal), 0);
             send(fd2, &contSignal, sizeof(contSignal), 0);
@@ -210,16 +214,17 @@ void playerTurn(int playID, int waitID, int* piles, int pileNumber){
   piles[chosenPile] -= chosenElements;
   //send piles to clients
   sendPiles(playID, waitID, piles, pileNumber);
-  printf("Pile %d is now %d.\n", chosenPile, chosenElements);
+  printf("Pile %d is now %d.\n", chosenPile, piles[chosenPile]);
 }
 
-int pilesNotEmpty(int* piles, int pileNumber){
+int checkPilesContent(int* piles, int pileNumber){
   int result = 0;
   for (int i = 0; i < pileNumber; i++){
     if (piles[i] > 0){
       result = 1;
     }
   }
+  printf("Res: %d\n", result);
   return result;
 }
 
