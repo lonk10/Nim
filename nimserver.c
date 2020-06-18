@@ -20,6 +20,7 @@ void playerTurn(int playID, int waitID, int* piles, int pileNumber);
 int checkPilesContent(int* piles, int pileNumber);
 void sendPiles(int fd1, int fd2, int* piles, int pileNumber);
 void handle_sigchld(int);
+void sendMsg(int fd, char* msg);
 
 int main (int argc, char **argv)
 {
@@ -50,7 +51,7 @@ int main (int argc, char **argv)
   }
 
   // Abilito effettivamente l'ascolto, con un massimo di 2 client in attesa
-  listen(sock, 5);
+  listen(sock, 2);
   fprintf(stderr, "In ascolto.\n");
 
   // continuo all'infinito ad aspettare client
@@ -64,9 +65,7 @@ int main (int argc, char **argv)
       return 3;
     }
     char waitmsg1[] = "Connected. You are Player 1. Waiting for Player 2...\n";
-    int waitmsg1len = strlen(waitmsg1) + 1;
-    send(fd1, &waitmsg1len, sizeof(waitmsg1len), 0); // Invio lunghezza del messaggio
-    send(fd1, waitmsg1, waitmsg1len, 0); // Invio il messaggio
+    sendMsg(fd1, waitmsg1);
 
     struct sockaddr_un client2_addr;
     socklen_t client2_len = sizeof(client2_addr);
@@ -76,10 +75,7 @@ int main (int argc, char **argv)
       return 3;
     }
     char waitmsg2[] = "Connected. You are Player 2, please wait for Player 1 to choose the number of piles.\n";
-    int waitmsg2len = strlen(waitmsg1) + 1;
-    send(fd2, &waitmsg2len, sizeof(waitmsg2len), 0); // Invio lunghezza del messaggio
-    send(fd2, waitmsg2, waitmsg2len, 0); // Invio il messaggio
-
+    sendMsg(fd2, waitmsg2);
 
     /*
      * ogni volta che il server accetta una nuova connessione,
@@ -101,12 +97,10 @@ int main (int argc, char **argv)
         int player1 = 1;
         int player2 = 2;
 
-        send(fd1, &greetLen, sizeof(greetLen), 0); // Invio lunghezza del messaggio
-        send(fd1, greet, greetLen, 0); // Invio il messaggio
-        send(fd2, &greetLen, sizeof(greetLen), 0); // Invio lunghezza del messaggio
-        send(fd2, greet, greetLen, 0); // Invio il messaggio
-        send(fd1, &player1, sizeof(player1), 0); // Invio player ID
-        send(fd2, &player2, sizeof(player2), 0); // Invio player ID
+        sendMsg(fd1, greet); //Send greet to fd1
+        sendMsg(fd2, greet); //Sent greet to fd2
+        send(fd1, &player1, sizeof(player1), 0); // Invio player ID a fd1
+        send(fd2, &player2, sizeof(player2), 0); // Invio player ID a fd2
         //Recieve from Player 1 the number of piles to play with and send it to Player 2
         recv(fd1, &pileNumber, sizeof(pileNumber), 0);
         send(fd2, &pileNumber, sizeof(pileNumber), 0);
@@ -120,7 +114,6 @@ int main (int argc, char **argv)
 
         char player1WinMsg[] = "Player 1 has won. Closing game...\n";
         char player2WinMsg[] = "Player 2 has won. Closing game...\n";
-        int playerWinMsgLen = strlen(player1WinMsg) + 1;
         int contSignal = 89;
         int endSignal = 90;
 
@@ -135,10 +128,8 @@ int main (int argc, char **argv)
             send(fd1, &endSignal, sizeof(endSignal), 0);
             send(fd2, &endSignal, sizeof(endSignal), 0);
             //send win message
-            send(fd1, &playerWinMsgLen, sizeof(playerWinMsgLen), 0);
-            send(fd1, player1WinMsg, playerWinMsgLen, 0);
-            send(fd2, &playerWinMsgLen, sizeof(playerWinMsgLen), 0);
-            send(fd2, player1WinMsg, playerWinMsgLen, 0);
+            sendMsg(fd1, player1WinMsg);
+            sendMsg(fd2, player1WinMsg);
             break;
           } else {
             printf("Game is continuing");
@@ -155,10 +146,8 @@ int main (int argc, char **argv)
             send(fd1, &endSignal, sizeof(endSignal), 0);
             send(fd2, &endSignal, sizeof(endSignal), 0);
             //send win message
-            send(fd1, &playerWinMsgLen, sizeof(playerWinMsgLen), 0);
-            send(fd1, player2WinMsg, playerWinMsgLen, 0);
-            send(fd2, &playerWinMsgLen, sizeof(playerWinMsgLen), 0);
-            send(fd2, player2WinMsg, playerWinMsgLen, 0);
+            sendMsg(fd1, player2WinMsg);
+            sendMsg(fd2, player2WinMsg);
             break;
           } else {
             printf("Game is continuing.\n");
@@ -169,8 +158,8 @@ int main (int argc, char **argv)
         }
 
 
-        close(fd2);
-        close(fd1); // Alla fine chiudiamo la connessione
+        close(fd1);
+        close(fd2); // Close connection with clients
     }
   }
 }
@@ -179,10 +168,6 @@ void playerTurn(int playID, int waitID, int* piles, int pileNumber){
   char playerTurnPile[] = "Please choose a pile.\n";
   char playerTurnElements[] = "Please choose how many elements to remove.\n";
   char playerTurnWait[] = "Please wait for the other player's turn.\n";
-
-  int playerTurnPileLen = strlen(playerTurnPile) + 1;
-  int playerTurnElementsLen = strlen(playerTurnElements) + 1;
-  int playerTurnWaitLen = strlen(playerTurnWait) + 1;
 
   int chosenPile, chosenElements;
 
@@ -197,17 +182,14 @@ void playerTurn(int playID, int waitID, int* piles, int pileNumber){
   printf("Wait signal sent.\n");
 
   //Send wait message to Player waiting
-  send(waitID, &playerTurnWaitLen, sizeof(playerTurnWaitLen), 0);
-  send(waitID, playerTurnWait, playerTurnWaitLen, 0);
+  sendMsg(waitID, playerTurnWait);
   printf("Wait message sent.\n");
   //Ask Player 1 which pile to take from
-  send(playID, &playerTurnPileLen, sizeof(playerTurnPileLen), 0);
-  send(playID, playerTurnPile, playerTurnPileLen, 0);
+  sendMsg(playID, playerTurnPile);
   printf("Pile message sent.\n");
   recv(playID, &chosenPile, sizeof(chosenPile), 0);
   //Ask Player 1 how many elements to take
-  send(playID, &playerTurnElementsLen, sizeof(playerTurnElementsLen), 0);
-  send(playID,playerTurnElements, playerTurnElementsLen, 0);
+  sendMsg(playID, playerTurnElements);
   printf("Elements message sent.\n");
   recv(playID, &chosenElements, sizeof(chosenElements), 0);
 
@@ -240,4 +222,10 @@ void sendPiles(int fd1, int fd2, int* piles, int pileNumber){
     send(fd1, &piles[i], sizeof(piles[i]), 0);
     send(fd2, &piles[i], sizeof(piles[i]), 0);
   }
+}
+
+void sendMsg(int fd, char* msg){
+  int msgLen = strlen(msg) + 1;
+  send(fd, &msgLen, sizeof(msgLen), 0); // Invio lunghezza del messaggio
+  send(fd, msg, msgLen, 0); // Invio il messaggio
 }
