@@ -94,12 +94,24 @@ int main (int argc, char **argv)
         int player1 = 1;
         int player2 = 2;
 
+        int validSignal = 83;
+        int invalidSignal = 84;
+
         sendMsg(fd1, greet); //Send greet to fd1
         sendMsg(fd2, greet); //Sent greet to fd2
         send(fd1, &player1, sizeof(player1), 0); // send player ID to fd1
         send(fd2, &player2, sizeof(player2), 0); // send player ID to fd2
-        //Recieve from Player 1 the number of piles to play with and send it to Player 2
-        recv(fd1, &pileNumber, sizeof(pileNumber), 0);
+        //Recieve from Player 1 the number of piles to play with and send it to Player
+        while(1){ //Validate reply only if more than (1) piles are selected
+          recv(fd1, &pileNumber, sizeof(pileNumber), 0);
+          if (pileNumber < 2){
+            send(fd1, &invalidSignal, sizeof(invalidSignal), 0);
+            sendMsg(fd1, "Please select more than 1 pile.\n");
+          } else {
+            send(fd1, &validSignal, sizeof(validSignal), 0);
+            break;
+          }
+        }        
         send(fd2, &pileNumber, sizeof(pileNumber), 0);
 
         //Generate piles

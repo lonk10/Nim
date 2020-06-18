@@ -45,14 +45,27 @@ int main()
 
   int playerID;
   int pileNumber;
+  int validationSignal;
+
   //receives player ID
   recv(sock, &playerID, sizeof(playerID), 0);
   //Sets the number of piles if player 1
   if (playerID == 1){
-    printf("Please insert the number of piles to play with.\n");
-    fgets(input, 40, stdin);
-    sscanf(input, "%d", &pileNumber);
-    send(sock, &pileNumber, sizeof(pileNumber), 0);
+    printf("Please insert the number of piles to play with. (More than 1)\n");
+    while(1){
+      fgets(input, 40, stdin);
+      sscanf(input, "%d", &pileNumber);
+      send(sock, &pileNumber, sizeof(pileNumber), 0);
+      recv(sock, &validationSignal, sizeof(validationSignal), 0);
+      if (validationSignal == 83){
+        break;
+      } else if (validationSignal == 84){
+        recv(sock, &buflen, sizeof(buflen), 0);
+        char *buffer = malloc(buflen);
+        recv(sock, buffer, buflen, 0); //receive msg
+        printf("%s\n", buffer);
+      }
+    }
   } else if (playerID == 2){
     recv(sock, &pileNumber, sizeof(pileNumber), 0);
   }
