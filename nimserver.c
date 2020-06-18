@@ -6,7 +6,7 @@
 #include <errno.h>
 #include <unistd.h>
 #include <sys/types.h>
-#include <sys/un.h> // per struct sockaddr_un
+#include <sys/un.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include <signal.h>
@@ -24,7 +24,7 @@ void sendMsg(int fd, char* msg);
 
 int main (int argc, char **argv)
 {
-  // imposto l'handler per SIGCHLD, in modo da non creare processi zombie
+  // signal handler
   signal(SIGCHLD, handle_sigchld);
 
   // open socket
@@ -40,21 +40,19 @@ int main (int argc, char **argv)
     .sun_path = SOCKADDR
   };
 
-  // mi preoccupo di rimuovere il file del socket in caso esista già.
-  // se è impegnato da un altro server non si potrà rimuovere, ma bind()
-  // successivamente mi darà errore
+  // unlink socket
   unlink(SOCKADDR);
-  // lego l'indirizzo al socket di ascolto
+  // bind addr to sock
   if(bind(sock, (struct sockaddr *)&addr, sizeof addr) == -1) {
     perror("bind()");
     return 2;
   }
 
-  // Abilito effettivamente l'ascolto, con un massimo di 2 client in attesa
-  listen(sock, 2);
-  fprintf(stderr, "In ascolto.\n");
+  // start listening
+  listen(sock, 4);
+  fprintf(stderr, "Listening.\n");
 
-  // continuo all'infinito ad aspettare client
+  // listen loop
   while (1)
   {
     struct sockaddr_un client_addr;
@@ -78,8 +76,7 @@ int main (int argc, char **argv)
     sendMsg(fd2, waitmsg2);
 
     /*
-     * ogni volta che il server accetta una nuova connessione,
-     * quest'ultima viene gestita da un nuovo processo figlio
+     * forks when both clients are connected
      */
     pid_t pid = fork();
     if(pid == -1) {
@@ -87,11 +84,11 @@ int main (int argc, char **argv)
       return 4;
     }
 
-    // il figlio gestisce la connessione, il padre torna subito in ascolto
+    // child handles game
     if(!pid) {
-        fprintf(stderr, "Aperta connessione (PID %d).\n",getpid());
+        fprintf(stderr, "Opened connection (PID %d).\n",getpid());
 
-        char greet[] = "Benvenuto a C_Nim!\n";
+        char greet[] = "Welcome to C_Nim!\n";
         int greetLen = strlen(greet) + 1;
         int pileNumber;
         int player1 = 1;
@@ -99,8 +96,8 @@ int main (int argc, char **argv)
 
         sendMsg(fd1, greet); //Send greet to fd1
         sendMsg(fd2, greet); //Sent greet to fd2
-        send(fd1, &player1, sizeof(player1), 0); // Invio player ID a fd1
-        send(fd2, &player2, sizeof(player2), 0); // Invio player ID a fd2
+        send(fd1, &player1, sizeof(player1), 0); // send player ID to fd1
+        send(fd2, &player2, sizeof(player2), 0); // send player ID to fd2
         //Recieve from Player 1 the number of piles to play with and send it to Player 2
         recv(fd1, &pileNumber, sizeof(pileNumber), 0);
         send(fd2, &pileNumber, sizeof(pileNumber), 0);
@@ -123,7 +120,7 @@ int main (int argc, char **argv)
           //Player 1 turn
           playerTurn(fd1, fd2, piles, pileNumber);
           if (checkPilesContent(piles, pileNumber) == 0){ //winning condition
-            printf("Player 1 has won, initiating ending sequence.\n");
+            printf("PID %d. Player 1 has won, initiating ending sequence.\n", getpid());
             //send end signal
             send(fd1, &endSignal, sizeof(endSignal), 0);
             send(fd2, &endSignal, sizeof(endSignal), 0);
@@ -132,7 +129,7 @@ int main (int argc, char **argv)
             sendMsg(fd2, player1WinMsg);
             break;
           } else {
-            printf("Game is continuing");
+            printf("Game is continuing.\n");
             //send cont signal
             send(fd1, &contSignal, sizeof(contSignal), 0);
             send(fd2, &contSignal, sizeof(contSignal), 0);
@@ -141,7 +138,7 @@ int main (int argc, char **argv)
           //Player 2 turn
           playerTurn(fd2, fd1, piles, pileNumber);
           if (checkPilesContent(piles, pileNumber) == 0){ //winning condition
-            printf("Player 2 has won, initiating ending sequence.\n");
+            printf("PID %d. Player 2 has won, initiating ending sequence.\n", getpid());
             //send end signal
             send(fd1, &endSignal, sizeof(endSignal), 0);
             send(fd2, &endSignal, sizeof(endSignal), 0);
@@ -160,6 +157,7 @@ int main (int argc, char **argv)
 
         close(fd1);
         close(fd2); // Close connection with clients
+        break;
     }
   }
 }
@@ -201,9 +199,10 @@ void playerTurn(int playID, int waitID, int* piles, int pileNumber){
 
 int checkPilesContent(int* piles, int pileNumber){
   int result = 0;
+  //check piles for a non-zero pile
   for (int i = 0; i < pileNumber; i++){
     if (piles[i] > 0){
-      result = 1;
+      result = 1; //result changed to 1 if such pile is found
     }
   }
   printf("Res: %d\n", result);
@@ -226,6 +225,6 @@ void sendPiles(int fd1, int fd2, int* piles, int pileNumber){
 
 void sendMsg(int fd, char* msg){
   int msgLen = strlen(msg) + 1;
-  send(fd, &msgLen, sizeof(msgLen), 0); // Invio lunghezza del messaggio
-  send(fd, msg, msgLen, 0); // Invio il messaggio
+  send(fd, &msgLen, sizeof(msgLen), 0); // Send msg length
+  send(fd, msg, msgLen, 0); // Send msg
 }
