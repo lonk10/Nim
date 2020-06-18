@@ -174,6 +174,15 @@ int main (int argc, char **argv)
   }
 }
 
+/*
+* Function for the player turn. If it's the player's turn, they will choose the elements to remove from the desired pile
+* if it's not the player turn, they will wait.
+* @param playID, the fd of the player taking their turn
+* @param waitID, the fd of the player waiting
+* @param piles, the piles in the game
+* @param pileNumber, the number of piles in the game
+*/
+
 void playerTurn(int playID, int waitID, int* piles, int pileNumber){
   char playerTurnPile[] = "Please choose a pile.\n";
   char playerTurnElements[] = "Please choose how many elements to remove.\n";
@@ -183,6 +192,9 @@ void playerTurn(int playID, int waitID, int* piles, int pileNumber){
 
   int play = 1;
   int wait = 0;
+
+  int validSignal = 85;
+  int invalidSignal = 86;
 
   //Send play signal
   send(playID, &play, sizeof(play), 0);
@@ -197,11 +209,29 @@ void playerTurn(int playID, int waitID, int* piles, int pileNumber){
   //Ask Player 1 which pile to take from
   sendMsg(playID, playerTurnPile);
   printf("Pile message sent.\n");
-  recv(playID, &chosenPile, sizeof(chosenPile), 0);
+  while(1){
+    recv(playID, &chosenPile, sizeof(chosenPile), 0);
+    if (chosenPile < 0 || chosenPile > pileNumber - 1){ //Check that the chosen pile is valid
+      send(playID, &invalidSignal, sizeof(invalidSignal), 0);
+      sendMsg(playID, "Please select a valid pile.\n");
+    } else {
+      send(playID, &validSignal, sizeof(validSignal), 0);
+      break;
+    }
+  }
   //Ask Player 1 how many elements to take
   sendMsg(playID, playerTurnElements);
   printf("Elements message sent.\n");
-  recv(playID, &chosenElements, sizeof(chosenElements), 0);
+  while(1){
+    recv(playID, &chosenElements, sizeof(chosenElements), 0);
+    if (chosenElements < 0 || chosenElements > piles[chosenPile]){ //Check that the number of elements chosen is valid
+      send(playID, &invalidSignal, sizeof(invalidSignal), 0);
+      sendMsg(playID, "Please select a number between 0 and the current elements in the pile.\n");
+    } else {
+      send(playID, &validSignal, sizeof(validSignal), 0);
+      break;
+    }
+  }
 
   piles[chosenPile] -= chosenElements;
   //send piles to clients
@@ -209,6 +239,11 @@ void playerTurn(int playID, int waitID, int* piles, int pileNumber){
   printf("Pile %d is now %d.\n", chosenPile, piles[chosenPile]);
 }
 
+/*
+* Checks if there's at least one piles with more than 0 elements
+* @param piles, the piles in the game
+* @param pileNumber, the number of piles in the game
+*/
 int checkPilesContent(int* piles, int pileNumber){
   int result = 0;
   //check piles for a non-zero pile
@@ -227,6 +262,12 @@ void handle_sigchld(int x) {
     errno = saved_errno;
 }
 
+/*
+* Sends the current piles to both clients connect
+* @param fd1, fd2, the clients connected
+* @param piles, the piles in the game
+* @param pileNumber, the number of piles in the game
+*/
 void sendPiles(int fd1, int fd2, int* piles, int pileNumber){
   //Send piles to clients
   for (int i = 0; i < pileNumber; i++){
@@ -235,6 +276,11 @@ void sendPiles(int fd1, int fd2, int* piles, int pileNumber){
   }
 }
 
+/* 
+* Sends a string to a client
+* @param fd, the client to send the message to
+* @param msg, the message to send
+*/
 void sendMsg(int fd, char* msg){
   int msgLen = strlen(msg) + 1;
   send(fd, &msgLen, sizeof(msgLen), 0); // Send msg length

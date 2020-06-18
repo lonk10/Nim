@@ -9,7 +9,7 @@
 
 #include "common.h"
 
-void receiveAndSend(int sock);
+int receiveAndSend(int sock);
 void printPiles(int sock, int pileNumber);
 
 int main()
@@ -57,13 +57,16 @@ int main()
       sscanf(input, "%d", &pileNumber);
       send(sock, &pileNumber, sizeof(pileNumber), 0);
       recv(sock, &validationSignal, sizeof(validationSignal), 0);
-      if (validationSignal == 83){
+      if (validationSignal == 83){ // Check for validation on number of piles chosen
         break;
       } else if (validationSignal == 84){
         recv(sock, &buflen, sizeof(buflen), 0);
         char *buffer = malloc(buflen);
         recv(sock, buffer, buflen, 0); //receive msg
         printf("%s\n", buffer);
+      } else {
+        fprintf(stderr, "Error 01. Invalid signal or client has lost connection.\n");
+        return 3;
       }
     }
   } else if (playerID == 2){
@@ -73,14 +76,23 @@ int main()
   int playSignal = 1;
   int waitSignal = 0;
   int endSignal = 90;
+  int check;
   
   printPiles(sock, pileNumber);
 
   while(1){
     recv(sock, &bufSignal, sizeof(bufSignal), 0);
     if (bufSignal == playSignal){      
-      receiveAndSend(sock); //choose pile
-      receiveAndSend(sock); //choose elements
+      check = receiveAndSend(sock); //choose pile
+      if (check == 1){
+        fprintf(stderr, "Error 02. Invalid signal or client has lost connection.\n");
+        return 4;
+      }
+      check = receiveAndSend(sock); //choose elements
+      if (check == 1){
+        fprintf(stderr, "Error 03. Invalid signal or client has lost connection.\n");
+        return 5;
+      }
       //Print piles
       printPiles(sock, pileNumber);
     } else if (bufSignal == waitSignal){
@@ -90,7 +102,8 @@ int main()
       recv(sock, buffer, buflen, 0);
       printPiles(sock, pileNumber);
     } else {
-      printf("Turn Signal error.\n");
+      fprintf(stderr, "Error 04. Invalid signal or client has lost connection.\n");
+      return 6;
     }
     //Receive signal
     recv(sock, &bufSignal, sizeof(bufSignal), 0);
@@ -106,24 +119,49 @@ int main()
   printf("Closing client...\n");
   return 0;
 }
-
-void receiveAndSend(int sock){
+/*
+* Receive a string message and send an integer via a UNIX socket
+* @param sock, the socket to use
+*/
+int receiveAndSend(int sock){
   int bufInt, buflen;
   char input[40];
+
+  int validationSignal;
 
   recv(sock, &buflen, sizeof(buflen), 0);
   char *buffer = malloc(buflen);
   recv(sock, buffer, buflen, 0); //receive turn msg
   printf("%s\n", buffer);
-  fgets(input, 40, stdin);
-  sscanf(input, "%d", &bufInt);
-  send(sock, &bufInt, sizeof(bufInt), 0);
+  while(1){
+    fgets(input, 40, stdin);
+    sscanf(input, "%d", &bufInt);
+    send(sock, &bufInt, sizeof(bufInt), 0);
+    recv(sock, &validationSignal, sizeof(validationSignal), 0);
+    if (validationSignal == 85){ // Check for validation on number of piles chosen
+        break;
+      } else if (validationSignal == 86){
+        recv(sock, &buflen, sizeof(buflen), 0);
+        char *buffer = malloc(buflen);
+        recv(sock, buffer, buflen, 0); //receive msg
+        printf("%s\n", buffer);
+      } else {
+        return 1;
+      }
+  }
+  return 0;
 }
-
+/*
+* Prints the content, after receiving it via a UNIX socket, of all the piles currently in the game
+* @param sock, the socket to use
+* @param pileNumber the number of piles in the game
+*/
 void printPiles(int sock, int pileNumber){
-  int pile;
+  int pile, buflen;
+  printf("Current piles are: \n");
   for (int i = 0; i < pileNumber; i++){
     recv(sock, &pile, sizeof(pile), 0);
     printf("Pile %d: %d\n", i, pile);
   }
+  printf("\n");
 }
