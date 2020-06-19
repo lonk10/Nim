@@ -10,14 +10,15 @@
 #include "common.h"
 
 int receiveAndSend(int sock);
-void printPiles(int sock, int pileNumber);
+int printPiles(int sock, int pileNumber);
+int receiveMsg(int sock);
 
 int main()
 {
   printf("Connecting...\n");
   int sock = socket(AF_LOCAL, SOCK_STREAM, 0);
   if(sock == -1) {
-    perror("socket()");
+    fprintf(stderr, "Error 01. Socket error");
     return 1;
   }
 
@@ -28,18 +29,22 @@ int main()
   };
 
   if(connect(sock, (struct sockaddr *)&addr, sizeof addr) == -1){
-    fprintf(stderr, "Impossible to connect to the server.\n");
+    fprintf(stderr, "Error 02. Impossible to connect to the server.\n");
     return 2;
   }
+
+  int test;
+
   int buflen = 0;
-  recv(sock, &buflen, sizeof(buflen), 0);
   char *buffer = malloc(buflen);
-  recv(sock, buffer, buflen, 0); //receive connection msg
-  printf("%s\n", buffer);
-  recv(sock, &buflen, sizeof(buflen), 0);
-  buffer = realloc(buffer, buflen);
-  recv(sock, buffer, buflen, 0); //receive welcome msg
-  printf("%s\n", buffer);
+
+  for (int i = 0; i < 2; i++){
+    test = receiveMsg(sock);
+    if (test == -1){
+      fprintf(stderr, "Error 03. No message received.\n");
+      return 3;
+    }
+  }
 
   char input[40];
 
@@ -55,63 +60,115 @@ int main()
     while(1){
       fgets(input, 40, stdin);
       sscanf(input, "%d", &pileNumber);
-      send(sock, &pileNumber, sizeof(pileNumber), 0);
-      recv(sock, &validationSignal, sizeof(validationSignal), 0);
+      test = send(sock, &pileNumber, sizeof(pileNumber), MSG_NOSIGNAL);
+      if (test == -1){
+        fprintf(stderr, "Error 04. Couldn't send message.\n");
+        return 4;
+      }
+      test = recv(sock, &validationSignal, sizeof(validationSignal), 0);
+      if (test == -1) {
+        printf("asd\n"); 
+        fprintf(stderr, "Error 03. No message received.\n");
+        return 3;
+      }
+
       if (validationSignal == 83){ // Check for validation on number of piles chosen
         break;
-      } else if (validationSignal == 84){
-        recv(sock, &buflen, sizeof(buflen), 0);
-        char *buffer = malloc(buflen);
-        recv(sock, buffer, buflen, 0); //receive msg
-        printf("%s\n", buffer);
-      } else {
-        fprintf(stderr, "Error 01. Invalid signal or client has lost connection.\n");
-        return 3;
+      } else if (validationSignal == 84){ // If the sent message isn't valid, resend it
+        test = receiveMsg(sock);
+        if (test == -1){
+          fprintf(stderr, "Error 03. No message received.\n");
+          return 3;
+        }
+      } else { //Print error if the signal isn't one of the valid options
+        fprintf(stderr, "Error 05. Invalid signal.\n");
+        return 5;
       }
     }
   } else if (playerID == 2){
-    recv(sock, &pileNumber, sizeof(pileNumber), 0);
+    test = recv(sock, &pileNumber, sizeof(pileNumber), 0);
+    if (test == -1 ){
+      fprintf(stderr, "Error 03. No message received.\n");
+      return 3;
+    }
   }
   int pile, turnSignal, bufSignal;
   int playSignal = 1;
   int waitSignal = 0;
   int endSignal = 90;
-  int check;
   
-  printPiles(sock, pileNumber);
+  test = printPiles(sock, pileNumber);
+  if (test == -1){
+    fprintf(stderr, "Error 03. No message received.\n");
+    return 3;
+  } else if (test == -2){
+    fprintf(stderr, "Error 05. Invalid signal.\n");
+    return 5;
+  }
 
   while(1){
-    recv(sock, &bufSignal, sizeof(bufSignal), 0);
+    test = recv(sock, &bufSignal, sizeof(bufSignal), 0);
+    if (test == -1 ){
+      fprintf(stderr, "Error 03. No message received.\n");
+      return 3;
+    }
     if (bufSignal == playSignal){      
-      check = receiveAndSend(sock); //choose pile
-      if (check == 1){
-        fprintf(stderr, "Error 02. Invalid signal or client has lost connection.\n");
+      test = receiveAndSend(sock); //choose pile
+      if (test == 1){
+        fprintf(stderr, "Error 05. Invalid signal.\n");
         return 4;
+      } else if (test == 2){
+        fprintf(stderr, "Error 03. No message received.\n");
+        return 3;
       }
-      check = receiveAndSend(sock); //choose elements
-      if (check == 1){
-        fprintf(stderr, "Error 03. Invalid signal or client has lost connection.\n");
+      test = receiveAndSend(sock); //choose elements
+      if (test == 1){
+        fprintf(stderr, "Error 05. Invalid signal.\n");
         return 5;
+      } else if (test == 2){
+        fprintf(stderr, "Error 03. No message received.\n");
+        return 3;
       }
       //Print piles
-      printPiles(sock, pileNumber);
+      test = printPiles(sock, pileNumber);
+      if (test == -1){
+        fprintf(stderr, "Error 03. No message received.\n");
+        return 3;
+      } else if (test == -2){
+        fprintf(stderr, "Error 05. Invalid signal.\n");
+        return 5;
+      }
     } else if (bufSignal == waitSignal){
       //receive waiting messagge
-      recv(sock, &buflen, sizeof(buflen), 0);
-      buffer = realloc(buffer, buflen);
-      recv(sock, buffer, buflen, 0);
-      printPiles(sock, pileNumber);
+      test = receiveMsg(sock);
+      if (test == -1){
+        fprintf(stderr, "Error 03. No message received.\n");
+        return 3;
+      }
+      test = printPiles(sock, pileNumber);
+      if (test == -1){
+        fprintf(stderr, "Error 03. No message received.\n");
+        return 3;
+      } else if (test == -2){
+        fprintf(stderr, "Error 05. Invalid signal.\n");
+        return 5;
+      }
     } else {
-      fprintf(stderr, "Error 04. Invalid signal or client has lost connection.\n");
-      return 6;
+      fprintf(stderr, "Error 05. Invalid signal.\n");
+      return 5;
     }
     //Receive signal
-    recv(sock, &bufSignal, sizeof(bufSignal), 0);
+    test = recv(sock, &bufSignal, sizeof(bufSignal), 0);
+    if (test == -1 ){
+      fprintf(stderr, "Error 03. No message received.\n");
+      return 3;
+    }
     if(bufSignal == endSignal){ //if end then break while cycle
-      recv(sock, &buflen, sizeof(buflen), 0);
-      buffer = realloc(buffer, buflen);
-      recv(sock, buffer, buflen, 0); //receive winning msg
-      printf("%s\n", buffer);
+      test = receiveMsg(sock);
+      if (test == -1){
+        fprintf(stderr, "Error 03. No message received.\n");
+        return 3;
+      }
       break;
     }
   }
@@ -126,25 +183,33 @@ int main()
 int receiveAndSend(int sock){
   int bufInt, buflen;
   char input[40];
+  int test;
 
   int validationSignal;
 
-  recv(sock, &buflen, sizeof(buflen), 0);
-  char *buffer = malloc(buflen);
-  recv(sock, buffer, buflen, 0); //receive turn msg
-  printf("%s\n", buffer);
+  test = receiveMsg(sock);
+  if (test == -1){
+    return 2;
+  }
   while(1){
     fgets(input, 40, stdin);
     sscanf(input, "%d", &bufInt);
-    send(sock, &bufInt, sizeof(bufInt), 0);
-    recv(sock, &validationSignal, sizeof(validationSignal), 0);
+    test = send(sock, &bufInt, sizeof(bufInt), MSG_NOSIGNAL);
+    if (test == -1){
+      fprintf(stderr, "Error 04. Couldn't send message.\n");
+      return 4;
+    }
+    test = recv(sock, &validationSignal, sizeof(validationSignal), 0);
+    if (test == -1 ){
+      return 2;
+    }
     if (validationSignal == 85){ // Check for validation on number of piles chosen
         break;
       } else if (validationSignal == 86){
-        recv(sock, &buflen, sizeof(buflen), 0);
-        char *buffer = malloc(buflen);
-        recv(sock, buffer, buflen, 0); //receive msg
-        printf("%s\n", buffer);
+        test = receiveMsg(sock);
+        if (test == -1){
+          return 2;
+        }
       } else {
         return 1;
       }
@@ -156,12 +221,48 @@ int receiveAndSend(int sock){
 * @param sock, the socket to use
 * @param pileNumber the number of piles in the game
 */
-void printPiles(int sock, int pileNumber){
-  int pile, buflen;
+int printPiles(int sock, int pileNumber){
+  int buffer, test;
+
+  int validSignal = 92;
+  test = recv(sock, &buffer, sizeof(buffer), 0);
+  if (test == -1 ){
+    return -1;
+  }
+  if (buffer != validSignal){
+    return -2;
+  }
+
+
   printf("Current piles are: \n");
   for (int i = 0; i < pileNumber; i++){
-    recv(sock, &pile, sizeof(pile), 0);
-    printf("Pile %d: %d\n", i, pile);
+    test = recv(sock, &buffer, sizeof(buffer), 0);
+    if (test == -1 ){
+      return -1;
+    }
+    printf("Pile %d: %d\n", i, buffer);
   }
   printf("\n");
+  return 0;
+}
+
+/*
+*
+*
+*/
+int receiveMsg(int sock){
+  int buflen = 0;
+  char *buffer = malloc(buflen);
+  int test;
+
+  test = recv(sock, &buflen, sizeof(buflen), 0);
+  if (test == -1 ){
+    return -1;
+  }
+  test = recv(sock, buffer, buflen, 0); //receive connection msg
+  if (test == -1 ){ // Print error if message wasn't received
+    return -1;
+  }
+  printf("%s\n", buffer);
+  return 0;
 }

@@ -18,9 +18,9 @@
 
 void playerTurn(int playID, int waitID, int* piles, int pileNumber);
 int checkPilesContent(int* piles, int pileNumber);
-void sendPiles(int fd1, int fd2, int* piles, int pileNumber);
+int sendPiles(int fd1, int fd2, int* piles, int pileNumber);
 void handle_sigchld(int);
-void sendMsg(int fd, char* msg);
+int sendMsg(int fd, char* msg);
 
 int main (int argc, char **argv)
 {
@@ -243,6 +243,7 @@ void playerTurn(int playID, int waitID, int* piles, int pileNumber){
 * Checks if there's at least one piles with more than 0 elements
 * @param piles, the piles in the game
 * @param pileNumber, the number of piles in the game
+* @return 0 if all the piles are empty, 1 if otherwise
 */
 int checkPilesContent(int* piles, int pileNumber){
   int result = 0;
@@ -267,22 +268,50 @@ void handle_sigchld(int x) {
 * @param fd1, fd2, the clients connected
 * @param piles, the piles in the game
 * @param pileNumber, the number of piles in the game
+* @return 0 or -1 if have any errors have been encountered
 */
-void sendPiles(int fd1, int fd2, int* piles, int pileNumber){
-  //Send piles to clients
-  for (int i = 0; i < pileNumber; i++){
-    send(fd1, &piles[i], sizeof(piles[i]), 0);
-    send(fd2, &piles[i], sizeof(piles[i]), 0);
+int sendPiles(int fd1, int fd2, int* piles, int pileNumber){
+  int test;
+  //Send signal to validate start
+  int signal = 92;
+  test = send(fd1, &signal, sizeof(signal), MSG_NOSIGNAL);
+  if (test == -1){
+    return -1;
   }
+  test = send(fd2, &signal, sizeof(signal), MSG_NOSIGNAL);
+  if (test == -1){
+    return -1;
+  }
+  //Send piles
+  for (int i = 0; i < pileNumber; i++){
+    test = send(fd1, &piles[i], sizeof(piles[i]), MSG_NOSIGNAL);
+    if (test == -1){
+      return -1;
+    }
+    test = send(fd2, &piles[i], sizeof(piles[i]), MSG_NOSIGNAL);
+    if (test == -1){
+      return -1;
+    }
+  }
+  return 0;
 }
 
 /* 
 * Sends a string to a client
 * @param fd, the client to send the message to
 * @param msg, the message to send
+* @return 0 or -1 if have any errors have been encountered
 */
-void sendMsg(int fd, char* msg){
+int sendMsg(int fd, char* msg){
+  int test;
   int msgLen = strlen(msg) + 1;
-  send(fd, &msgLen, sizeof(msgLen), 0); // Send msg length
-  send(fd, msg, msgLen, 0); // Send msg
+  test = send(fd, &msgLen, sizeof(msgLen), MSG_NOSIGNAL); // Send msg length
+  if (test == -1){ // return -1 if a send error has been encountered
+    return -1;
+  }
+  test = send(fd, msg, msgLen, MSG_NOSIGNAL); // Send msg
+  if (test == -1){
+    return -1;
+  }
+  return 0;
 }
