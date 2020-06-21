@@ -16,11 +16,12 @@
 
 #define RANMAX 50;
 
-void playerTurn(int playID, int waitID, int* piles, int pileNumber);
+int playerTurn(int playID, int waitID, int* piles, int pileNumber);
 int checkPilesContent(int* piles, int pileNumber);
 int sendPiles(int fd1, int fd2, int* piles, int pileNumber);
 void handle_sigchld(int);
 int sendMsg(int fd, char* msg);
+int shutdownClients(int fd1, int fd2, int __how);
 
 int main (int argc, char **argv)
 {
@@ -30,7 +31,7 @@ int main (int argc, char **argv)
   // open socket
   int sock = socket(AF_LOCAL, SOCK_STREAM, 0);
   if(sock == -1) {
-    perror("socket()");
+    fprintf(stderr, "Error 01. Socket error.\n");
     return 1;
   }
 
@@ -44,7 +45,7 @@ int main (int argc, char **argv)
   unlink(SOCKADDR);
   // bind addr to sock
   if(bind(sock, (struct sockaddr *)&addr, sizeof addr) == -1) {
-    perror("bind()");
+    fprintf(stderr, "Error 02. Bind error.\n");
     return 2;
   }
 
@@ -55,33 +56,43 @@ int main (int argc, char **argv)
   // listen loop
   while (1)
   {
+    int test;
     struct sockaddr_un client_addr;
     socklen_t client_len = sizeof(client_addr);
     int fd1 = accept(sock, (struct sockaddr *)&client_addr, &client_len);
     if(fd1 == -1) {
-      perror("accept()");
+      fprintf(stderr, "PID: %d. Error 03. Socket error.\n", getpid());
       return 3;
     }
     char waitmsg1[] = "Connected. You are Player 1. Waiting for Player 2...\n";
-    sendMsg(fd1, waitmsg1);
+    test = sendMsg(fd1, waitmsg1);
+    if (test == -1){
+      fprintf(stderr, "PID: %d. Error 04. Couldn't send message.\n", getpid());
+      return 4;
+    }
 
     struct sockaddr_un client2_addr;
     socklen_t client2_len = sizeof(client2_addr);
     int fd2 = accept(sock, (struct sockaddr *)&client2_addr, &client2_len);
     if(fd2 == -1) {
-      perror("accept()");
+      fprintf(stderr, "PID: %d. Error 03. Socket error.\n", getpid());
       return 3;
     }
     char waitmsg2[] = "Connected. You are Player 2, please wait for Player 1 to choose the number of piles.\n";
-    sendMsg(fd2, waitmsg2);
-
+    test = sendMsg(fd2, waitmsg2);
+    if (test == -1){
+      fprintf(stderr, "PID: %d. Error 04. Couldn't send message.\n", getpid());
+      shutdownClients(fd1, fd2, SHUT_RDWR); // Close connection with clients
+      return 4;
+    }
     /*
      * forks when both clients are connected
      */
     pid_t pid = fork();
     if(pid == -1) {
-      perror("fork()");
-      return 4;
+      fprintf(stderr, "PID: %d. Error 05. Fork error.\n", getpid());
+      shutdownClients(fd1, fd2, SHUT_RDWR); // Close connection with clients
+      return 5;
     }
 
     // child handles game
@@ -97,22 +108,71 @@ int main (int argc, char **argv)
         int validSignal = 83;
         int invalidSignal = 84;
 
-        sendMsg(fd1, greet); //Send greet to fd1
-        sendMsg(fd2, greet); //Sent greet to fd2
-        send(fd1, &player1, sizeof(player1), 0); // send player ID to fd1
-        send(fd2, &player2, sizeof(player2), 0); // send player ID to fd2
-        //Recieve from Player 1 the number of piles to play with and send it to Player
+        test = sendMsg(fd1, greet); //Send greet to fd1
+        if (test == -1){
+          fprintf(stderr, "PID: %d. Error 04. Couldn't send message.\n", getpid());
+          shutdownClients(fd1, fd2, SHUT_RDWR); // Close connection with clients
+          return 4;
+        }
+        test = sendMsg(fd2, greet); //Sent greet to fd2
+        if (test == -1){
+          fprintf(stderr, "PID: %d. Error 04. Couldn't send message.\n", getpid());
+          shutdownClients(fd1, fd2, SHUT_RDWR); // Close connection with clients
+          return 4;
+        }
+        test = send(fd1, &player1, sizeof(player1), MSG_NOSIGNAL); // send player ID to fd1
+        if (test == -1){
+          fprintf(stderr, "PID: %d. Error 04. Couldn't send message.\n", getpid());
+          shutdownClients(fd1, fd2, SHUT_RDWR); // Close connection with clients
+          return 4;
+        }
+        test = send(fd2, &player2, sizeof(player2), MSG_NOSIGNAL); // send player ID to fd2
+        if (test == -1){
+          fprintf(stderr, "PID: %d. Error 04. Couldn't send message.\n", getpid());
+          shutdownClients(fd1, fd2, SHUT_RDWR); // Close connection with clients
+          return 4;
+        }
+        /*
+        *
+        * Recieve from Player 1 the number of piles to play with and send it to Player
+        * 
+        */
         while(1){ //Validate reply only if more than (1) piles are selected
-          recv(fd1, &pileNumber, sizeof(pileNumber), 0);
+          test = recv(fd1, &pileNumber, sizeof(pileNumber), 0);
+          if (test == -1){
+            fprintf(stderr, "PID: %d. Error 06. No message received.\n", getpid());
+            shutdownClients(fd1, fd2, SHUT_RDWR); // Close connection with clients
+            return 6;
+          }
           if (pileNumber < 2){
-            send(fd1, &invalidSignal, sizeof(invalidSignal), 0);
-            sendMsg(fd1, "Please select more than 1 pile.\n");
+            test = send(fd1, &invalidSignal, sizeof(invalidSignal), MSG_NOSIGNAL);
+            if (test == -1){
+              fprintf(stderr, "PID: %d. Error 04. Couldn't send message.\n", getpid());
+              shutdownClients(fd1, fd2, SHUT_RDWR); // Close connection with clients
+              return 4;
+            }
+            test = sendMsg(fd1, "Please select more than 1 pile.\n");
+            if (test == -1){
+              fprintf(stderr, "PID: %d. Error 04. Couldn't send message.\n", getpid());
+              shutdownClients(fd1, fd2, SHUT_RDWR); // Close connection with clients
+              return 4;
+            }
           } else {
-            send(fd1, &validSignal, sizeof(validSignal), 0);
+            test = send(fd1, &validSignal, sizeof(validSignal), MSG_NOSIGNAL);
+            if (test == -1){
+              fprintf(stderr, "PID: %d. Error 04. Couldn't send message.\n", getpid());
+              shutdownClients(fd1, fd2, SHUT_RDWR); // Close connection with clients
+              return 4;
+            }
             break;
           }
         }        
-        send(fd2, &pileNumber, sizeof(pileNumber), 0);
+        test = send(fd2, &pileNumber, sizeof(pileNumber), MSG_NOSIGNAL);
+        if (test == -1){
+          fprintf(stderr, "PID: %d. Error 04. Couldn't send message.\n", getpid());
+          shutdownClients(fd1, fd2, SHUT_RDWR); // Close connection with clients
+          return 4;
+        }
 
         //Generate piles
         int* piles = malloc(pileNumber * sizeof(int));
@@ -127,48 +187,121 @@ int main (int argc, char **argv)
         int endSignal = 90;
 
         //Send piles to clients
-        sendPiles(fd1, fd2, piles, pileNumber);
+        test = sendPiles(fd1, fd2, piles, pileNumber);
+        if (test == -1){
+          fprintf(stderr, "PID: %d. Error 04. Couldn't send message.\n", getpid());
+          shutdownClients(fd1, fd2, SHUT_RDWR); // Close connection with clients
+          return 4;
+        }
         while(1){
           //Player 1 turn
-          playerTurn(fd1, fd2, piles, pileNumber);
+          test = playerTurn(fd1, fd2, piles, pileNumber);
+          if (test == -1){
+            fprintf(stderr, "PID: %d. Error 09. Player turn error.\n", getpid());
+            shutdownClients(fd1, fd2, SHUT_RDWR); // Close connection with clients
+            return 9;
+          }
           if (checkPilesContent(piles, pileNumber) == 0){ //winning condition
-            printf("PID %d. Player 1 has won, initiating ending sequence.\n", getpid());
+            printf("PID: %d. Player 1 has won, initiating ending sequence.\n", getpid());
             //send end signal
-            send(fd1, &endSignal, sizeof(endSignal), 0);
-            send(fd2, &endSignal, sizeof(endSignal), 0);
+            test = send(fd1, &endSignal, sizeof(endSignal), MSG_NOSIGNAL);
+            if (test == -1){
+              fprintf(stderr, "PID: %d. Error 04. Couldn't send message.\n", getpid());
+              shutdownClients(fd1, fd2, SHUT_RDWR); // Close connection with clients
+              return 4;
+            }
+            test = send(fd2, &endSignal, sizeof(endSignal), MSG_NOSIGNAL);
+            if (test == -1){
+              fprintf(stderr, "PID: %d. Error 04. Couldn't send message.\n", getpid());
+              shutdownClients(fd1, fd2, SHUT_RDWR); // Close connection with clients
+              return 4;
+            }
             //send win message
-            sendMsg(fd1, player1WinMsg);
-            sendMsg(fd2, player1WinMsg);
+            test = sendMsg(fd1, player1WinMsg);
+            if (test == -1){
+              fprintf(stderr, "PID: %d. Error 04. Couldn't send message.\n", getpid());
+              shutdownClients(fd1, fd2, SHUT_RDWR); // Close connection with clients
+              return 4;
+            }
+            test = sendMsg(fd2, player1WinMsg);
+            if (test == -1){
+              fprintf(stderr, "PID: %d. Error 04. Couldn't send message.\n", getpid());
+              shutdownClients(fd1, fd2, SHUT_RDWR); // Close connection with clients
+              return 4;
+            }
             break;
           } else {
-            printf("Game is continuing.\n");
+            printf("PID: %d. Game is continuing.\n", getpid());
             //send cont signal
-            send(fd1, &contSignal, sizeof(contSignal), 0);
-            send(fd2, &contSignal, sizeof(contSignal), 0);
+            test = send(fd1, &contSignal, sizeof(contSignal), MSG_NOSIGNAL);
+            if (test == -1){
+              fprintf(stderr, "PID: %d. Error 04. Couldn't send message.\n", getpid());
+              shutdownClients(fd1, fd2, SHUT_RDWR); // Close connection with clients
+              return 4;
+            }
+            test = send(fd2, &contSignal, sizeof(contSignal), MSG_NOSIGNAL);
+            if (test == -1){
+              fprintf(stderr, "PID: %d. Error 04. Couldn't send message.\n", getpid());
+              shutdownClients(fd1, fd2, SHUT_RDWR); // Close connection with clients
+              return 4;
+            }
           }
 
           //Player 2 turn
-          playerTurn(fd2, fd1, piles, pileNumber);
+          test = playerTurn(fd2, fd1, piles, pileNumber);
+          if (test == -1){
+            fprintf(stderr, "PID: %d. Error 09. Player turn error.\n", getpid());
+            shutdownClients(fd1, fd2, SHUT_RDWR); // Close connection with clients
+            return 9;
+          }
           if (checkPilesContent(piles, pileNumber) == 0){ //winning condition
             printf("PID %d. Player 2 has won, initiating ending sequence.\n", getpid());
             //send end signal
-            send(fd1, &endSignal, sizeof(endSignal), 0);
-            send(fd2, &endSignal, sizeof(endSignal), 0);
+            test = send(fd1, &endSignal, sizeof(endSignal), MSG_NOSIGNAL);
+            if (test == -1){
+              fprintf(stderr, "PID: %d. Error 04. Couldn't send message.\n", getpid());
+              shutdownClients(fd1, fd2, SHUT_RDWR); // Close connection with clients
+              return 4;
+            }
+            test = send(fd2, &endSignal, sizeof(endSignal), MSG_NOSIGNAL);
+            if (test == -1){
+              fprintf(stderr, "PID: %d. Error 04. Couldn't send message.\n", getpid());
+              shutdownClients(fd1, fd2, SHUT_RDWR); // Close connection with clients
+              return 4;
+            }
             //send win message
-            sendMsg(fd1, player2WinMsg);
-            sendMsg(fd2, player2WinMsg);
+            test = sendMsg(fd1, player2WinMsg);if (test == -1){
+              fprintf(stderr, "PID: %d. Error 04. Couldn't send message.\n", getpid());
+              shutdownClients(fd1, fd2, SHUT_RDWR); // Close connection with clients
+              return 4;
+            }
+            test = sendMsg(fd2, player2WinMsg);
+            if (test == -1){
+              fprintf(stderr, "PID: %d. Error 04. Couldn't send message.\n", getpid());
+              shutdownClients(fd1, fd2, SHUT_RDWR); // Close connection with clients
+              return 4;
+            }
             break;
           } else {
-            printf("Game is continuing.\n");
+            printf("PID: %d. Game is continuing.\n", getpid());
             //send cont signal
-            send(fd1, &contSignal, sizeof(contSignal), 0);
-            send(fd2, &contSignal, sizeof(contSignal), 0);
+            test = send(fd1, &contSignal, sizeof(contSignal), MSG_NOSIGNAL);
+            if (test == -1){
+              fprintf(stderr, "PID: %d. Error 04. Couldn't send message.\n", getpid());
+              shutdownClients(fd1, fd2, SHUT_RDWR); // Close connection with clients
+              return 4;
+            }
+            test = send(fd2, &contSignal, sizeof(contSignal), MSG_NOSIGNAL);
+            if (test == -1){
+              fprintf(stderr, "PID: %d. Error 04. Couldn't send message.\n", getpid());
+              shutdownClients(fd1, fd2, SHUT_RDWR); // Close connection with clients
+              return 4;
+            }
           }
         }
 
 
-        close(fd1);
-        close(fd2); // Close connection with clients
+        shutdownClients(fd1, fd2, SHUT_RDWR); // Close connection with clients
         break;
     }
   }
@@ -181,9 +314,10 @@ int main (int argc, char **argv)
 * @param waitID, the fd of the player waiting
 * @param piles, the piles in the game
 * @param pileNumber, the number of piles in the game
+* @param 0 or -1 if any errors have been encountered
 */
 
-void playerTurn(int playID, int waitID, int* piles, int pileNumber){
+int playerTurn(int playID, int waitID, int* piles, int pileNumber){
   char playerTurnPile[] = "Please choose a pile.\n";
   char playerTurnElements[] = "Please choose how many elements to remove.\n";
   char playerTurnWait[] = "Please wait for the other player's turn.\n";
@@ -196,47 +330,106 @@ void playerTurn(int playID, int waitID, int* piles, int pileNumber){
   int validSignal = 85;
   int invalidSignal = 86;
 
+  int test;
+
   //Send play signal
-  send(playID, &play, sizeof(play), 0);
+  test = send(playID, &play, sizeof(play), MSG_NOSIGNAL);
+  if (test == -1){
+      fprintf(stderr, "PID: %d. Error 07. Couldn't send message.\n", getpid());
+      return -1;
+  }
   printf("Play signal sent.\n");
   //Send wait signal
-  send(waitID, &wait, sizeof(wait), 0);
+  test = send(waitID, &wait, sizeof(wait), MSG_NOSIGNAL);
+  if (test == -1){
+      fprintf(stderr, "PID: %d. Error 07. Couldn't send message.\n", getpid());
+      return -1;
+  }
   printf("Wait signal sent.\n");
 
   //Send wait message to Player waiting
-  sendMsg(waitID, playerTurnWait);
+  test = sendMsg(waitID, playerTurnWait);
+  if (test == -1){
+      fprintf(stderr, "PID: %d. Error 07. Couldn't send message.\n", getpid());
+      return -1;
+  }
   printf("Wait message sent.\n");
   //Ask Player 1 which pile to take from
-  sendMsg(playID, playerTurnPile);
-  printf("Pile message sent.\n");
+  test = sendMsg(playID, playerTurnPile);
+  if (test == -1){
+      fprintf(stderr, "PID: %d. Error 07. Couldn't send message.\n", getpid());
+      return -1;
+  }
+  printf("PID: %d. Pile message sent.\n", getpid());
   while(1){
-    recv(playID, &chosenPile, sizeof(chosenPile), 0);
+    test = recv(playID, &chosenPile, sizeof(chosenPile), 0);
+    if (test == -1) {
+      fprintf(stderr, "PID: %d. Error 08. No message received.\n");
+      return -1;
+    }
     if (chosenPile < 0 || chosenPile > pileNumber - 1){ //Check that the chosen pile is valid
-      send(playID, &invalidSignal, sizeof(invalidSignal), 0);
-      sendMsg(playID, "Please select a valid pile.\n");
+      test = send(playID, &invalidSignal, sizeof(invalidSignal), MSG_NOSIGNAL);
+      if (test == -1){
+          fprintf(stderr, "PID: %d. Error 07. Couldn't send message.\n", getpid());
+          return -1;
+      }
+      test = sendMsg(playID, "Please select a valid pile.\n");
+      if (test == -1){
+          fprintf(stderr, "PID: %d. Error 07. Couldn't send message.\n", getpid());
+          return -1;
+      }
     } else {
-      send(playID, &validSignal, sizeof(validSignal), 0);
+      test = send(playID, &validSignal, sizeof(validSignal), MSG_NOSIGNAL);
+      if (test == -1){
+          fprintf(stderr, "PID: %d. Error 07. Couldn't send message.\n", getpid());
+          return -1;
+      }
       break;
     }
   }
   //Ask Player 1 how many elements to take
-  sendMsg(playID, playerTurnElements);
-  printf("Elements message sent.\n");
+  test = sendMsg(playID, playerTurnElements);
+  if (test == -1){
+      fprintf(stderr, "PID: %d. Error 07. Couldn't send message.\n", getpid());
+      return -1;
+  }
+  printf("PID: %d. Elements message sent.\n", getpid());
   while(1){
-    recv(playID, &chosenElements, sizeof(chosenElements), 0);
+    test = recv(playID, &chosenElements, sizeof(chosenElements), 0);
+    if (test == -1) {
+      fprintf(stderr, "PID: %d. Error 08. No message received.\n", getpid());
+      return -1;
+    }
     if (chosenElements < 0 || chosenElements > piles[chosenPile]){ //Check that the number of elements chosen is valid
-      send(playID, &invalidSignal, sizeof(invalidSignal), 0);
-      sendMsg(playID, "Please select a number between 0 and the current elements in the pile.\n");
+      test = send(playID, &invalidSignal, sizeof(invalidSignal), MSG_NOSIGNAL);
+      if (test == -1){
+          fprintf(stderr, "PID: %d. Error 07. Couldn't send message.\n", getpid());
+          return -1;
+      }
+      test = sendMsg(playID, "Please select a number between 0 and the current elements in the pile.\n");
+      if (test == -1){
+          fprintf(stderr, "PID: %d. Error 07. Couldn't send message.\n", getpid());
+          return -1;
+      }
     } else {
-      send(playID, &validSignal, sizeof(validSignal), 0);
+      test = send(playID, &validSignal, sizeof(validSignal), MSG_NOSIGNAL);
+      if (test == -1){
+          fprintf(stderr, "PID: %d. Error 07. Couldn't send message.\n", getpid());
+          return -1;
+      }
       break;
     }
   }
 
   piles[chosenPile] -= chosenElements;
   //send piles to clients
-  sendPiles(playID, waitID, piles, pileNumber);
+  test = sendPiles(playID, waitID, piles, pileNumber);
   printf("Pile %d is now %d.\n", chosenPile, piles[chosenPile]);
+  if (test == -1){
+      fprintf(stderr, "PID: %d. Error 07. Couldn't send message.\n", getpid());
+      return -1;
+  }
+  return 0;
 }
 
 /*
@@ -253,7 +446,7 @@ int checkPilesContent(int* piles, int pileNumber){
       result = 1; //result changed to 1 if such pile is found
     }
   }
-  printf("Res: %d\n", result);
+  printf("PID: %d. Res: %d\n", result, getpid());
   return result;
 }
 
@@ -278,20 +471,24 @@ int sendPiles(int fd1, int fd2, int* piles, int pileNumber){
   if (test == -1){
     return -1;
   }
+  printf("PID: %d. Sent pile signal to fd1\n", getpid());
   test = send(fd2, &signal, sizeof(signal), MSG_NOSIGNAL);
   if (test == -1){
     return -1;
   }
+  printf("PID: %d. Sent pile signal to fd2\n", getpid());
   //Send piles
   for (int i = 0; i < pileNumber; i++){
     test = send(fd1, &piles[i], sizeof(piles[i]), MSG_NOSIGNAL);
     if (test == -1){
       return -1;
     }
+    printf("PID: %d. Sent pile %d to fd1\n", getpid(), i);
     test = send(fd2, &piles[i], sizeof(piles[i]), MSG_NOSIGNAL);
     if (test == -1){
       return -1;
     }
+    printf("PID: %d. Sent pile %d to fd1\n", getpid(), i);
   }
   return 0;
 }
@@ -310,6 +507,24 @@ int sendMsg(int fd, char* msg){
     return -1;
   }
   test = send(fd, msg, msgLen, MSG_NOSIGNAL); // Send msg
+  if (test == -1){
+    return -1;
+  }
+  return 0;
+}
+/*
+* Shuts down clients
+* @param fd1, fd2, the socket fd of the clients to shut down
+* @param __how the flag to use (refer to shutdown() for the flags)
+* @return 0 if no issues have been encountered, -1 otherwise
+*/
+int shutdownClients(int fd1, int fd2, int __how){
+  int test;
+  test = shutdown(fd1, __how);
+  if (test == -1){
+    return -1;
+  }
+  test = shutdown(fd2, __how);
   if (test == -1){
     return -1;
   }
