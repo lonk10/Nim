@@ -56,14 +56,33 @@ int main (int argc, char **argv)
   // listen loop
   while (1)
   {
+    int fd1, fd2; //file descriptors
     int test;
+    int startSignal = 34;
+    int bufSignal = 0;
+    int acceptSignal = 35;
     struct sockaddr_un client_addr;
     socklen_t client_len = sizeof(client_addr);
-    int fd1 = accept(sock, (struct sockaddr *)&client_addr, &client_len);
-    if(fd1 == -1) {
-      fprintf(stderr, "PID: %d. Error 03. Socket error.\n", getpid());
-      return 3;
+    while (bufSignal != acceptSignal){ //Check for valid client
+      fd1 = accept(sock, (struct sockaddr *)&client_addr, &client_len);
+      if(fd1 == -1) {
+        fprintf(stderr, "PID: %d. Error 03. Socket error.\n", getpid());
+        return 3;
+      }
+      test = send(fd1, &startSignal, sizeof(startSignal), MSG_NOSIGNAL);
+      if (test == -1){
+        fprintf(stderr, "Error 04. Couldn't send message.\n");
+      }
+      test = recv(fd1, &bufSignal, sizeof(bufSignal), 0);
+      if (test == -1) {
+        fprintf(stderr, "Error 03. No message received.\n");
+      }
+      if (bufSignal != acceptSignal){ //shutdown client if invalid
+        shutdown(fd1, SHUT_RDWR);
+      }
     }
+    bufSignal = 0; //reset bufSignal
+
     char waitmsg1[] = "Connected. You are Player 1. Waiting for Player 2...\n";
     test = sendMsg(fd1, waitmsg1);
     if (test == -1){
@@ -73,10 +92,23 @@ int main (int argc, char **argv)
 
     struct sockaddr_un client2_addr;
     socklen_t client2_len = sizeof(client2_addr);
-    int fd2 = accept(sock, (struct sockaddr *)&client2_addr, &client2_len);
-    if(fd2 == -1) {
-      fprintf(stderr, "PID: %d. Error 03. Socket error.\n", getpid());
-      return 3;
+    while (bufSignal != acceptSignal){ //Check for valid client
+      fd2 = accept(sock, (struct sockaddr *)&client_addr, &client_len);
+      if(fd2 == -1) {
+        fprintf(stderr, "PID: %d. Error 03. Socket error.\n", getpid());
+        return 3;
+      }
+      test = send(fd2, &startSignal, sizeof(startSignal), MSG_NOSIGNAL);
+      if (test == -1){
+        fprintf(stderr, "Error 04. Couldn't send message.\n");
+      }
+      test = recv(fd2, &bufSignal, sizeof(bufSignal), 0);
+      if (test == -1) {
+        fprintf(stderr, "Error 03. No message received.\n");
+      }
+      if (bufSignal != acceptSignal){ //shutdown client if invalid
+        shutdown(fd2, SHUT_RDWR);
+      }
     }
     char waitmsg2[] = "Connected. You are Player 2, please wait for Player 1 to choose the number of piles.\n";
     test = sendMsg(fd2, waitmsg2);

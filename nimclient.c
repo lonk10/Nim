@@ -37,12 +37,24 @@ int main()
 
   int test;
 
+  int acceptSignal = 35;
+
   int buflen = 0;
   char *buffer = malloc(buflen);
 
   struct pollfd fd;
   fd.events = POLLIN;
   fd.fd = sock;
+
+  test = recv(sock, &buflen, sizeof(buflen), 0);
+  if (test == -1){
+    fprintf(stderr, "Error 03. No message received.\n");
+    return 3;
+  }
+  test = send(sock, &acceptSignal, sizeof(acceptSignal), MSG_NOSIGNAL);
+  if (test == -1){
+    fprintf(stderr, "Error 04. Couldn't send message.\n");
+  }
 
   for (int i = 0; i < 2; i++){
     test = receiveMsg(sock);
