@@ -46,12 +46,16 @@ int main()
   fd.events = POLLIN;
   fd.fd = sock;
 
-  test = recv(sock, &buflen, sizeof(buflen), 0);
+  test = recv(sock, &buflen, sizeof(buflen), 0); // Receive accept signal
   if (test == -1){
     fprintf(stderr, "Error 03. No message received.\n");
     return 3;
   }
-  test = send(sock, &acceptSignal, sizeof(acceptSignal), MSG_NOSIGNAL);
+  if (buflen != 34){ // Check for correct signal
+    fprintf(stderr, "Error 05. Invalid signal.\n");
+    return 5;
+  }
+  test = send(sock, &acceptSignal, sizeof(acceptSignal), MSG_NOSIGNAL); // Send back accept signal
   if (test == -1){
     fprintf(stderr, "Error 04. Couldn't send message.\n");
   }
@@ -200,6 +204,7 @@ int main()
   printf("Closing client...\n");
   return 0;
 }
+
 /*
 * Receive a string message and send an integer via a UNIX socket
 * @param sock, the socket to use
@@ -230,7 +235,8 @@ int receiveAndSend(int sock){
     }
     test = recv(sock, &validationSignal, sizeof(validationSignal), 0);
     if (test == -1 ){
-      return -1;
+      fprintf(stderr, "Error 03. No message received.\n");
+      return 3;
     }
     if (validationSignal == 85){ // Check for validation on number of piles chosen
         break;
